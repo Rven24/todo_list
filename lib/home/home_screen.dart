@@ -16,14 +16,21 @@ class TodoListPage extends StatefulWidget {
 
 class _TodoListPageState extends State<TodoListPage> {
   final List<Task> _tasks = [];
-  final TextEditingController _textController = TextEditingController();
+
+  // Logic to dispose controllers after the frame is done
+  void _safeDispose(TextEditingController controller) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.dispose();
+    });
+  }
 
   Future<void> _addTask() async {
     final TextEditingController addController = TextEditingController();
 
     final String? newTask = await showDialog<String>(
       context: context,
-      builder: (BuildContext context) {
+      barrierDismissible: false, // Prevents accidental taps causing state issues
+      builder: (BuildContext dialogContext) {
         return AlertDialog(
           title: const Text('Tambah Task Baru'),
           content: TextField(
@@ -34,20 +41,18 @@ class _TodoListPageState extends State<TodoListPage> {
             ),
             autofocus: true,
             onSubmitted: (value) {
-              if (value.isNotEmpty) {
-                Navigator.of(context).pop(value);
-              }
+              if (value.isNotEmpty) Navigator.of(dialogContext).pop(value);
             },
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('Batal'),
             ),
             ElevatedButton(
               onPressed: () {
                 if (addController.text.isNotEmpty) {
-                  Navigator.of(context).pop(addController.text);
+                  Navigator.of(dialogContext).pop(addController.text);
                 }
               },
               child: const Text('Tambah'),
@@ -57,63 +62,22 @@ class _TodoListPageState extends State<TodoListPage> {
       },
     );
 
-    // Cleanup controller
-    addController.dispose();
+    _safeDispose(addController);
 
-    // Tambahkan task jika ada input
-    if (newTask != null && newTask.isNotEmpty) {
+    if (newTask != null && newTask.isNotEmpty && mounted) {
       setState(() {
         _tasks.add(Task(title: newTask));
       });
     }
   }
 
-  void _toggleTask(int index) {
-    setState(() {
-      _tasks[index].isCompleted = !_tasks[index].isCompleted;
-    });
-  }
-
-  // Method BARU: Konfirmasi sebelum delete
-  Future<void> _deleteTask(int index) async {
-    final bool? confirmed = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Konfirmasi'),
-          content: Text('Hapus task "${_tasks[index].title}"?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Batal'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-              child: const Text('Hapus'),
-            ),
-          ],
-        );
-      },
-    );
-
-    // Jika user klik "Hapus"
-    if (confirmed == true) {
-      setState(() {
-        _tasks.removeAt(index);
-      });
-    }
-  }
-
-  // Method BARU: Edit task
   Future<void> _editTask(int index) async {
-    final TextEditingController editController = TextEditingController(
-      text: _tasks[index].title,
-    );
+    final TextEditingController editController =
+        TextEditingController(text: _tasks[index].title);
 
     final String? newTitle = await showDialog<String>(
       context: context,
-      builder: (BuildContext context) {
+      builder: (BuildContext dialogContext) {
         return AlertDialog(
           title: const Text('Edit Task'),
           content: TextField(
@@ -123,21 +87,16 @@ class _TodoListPageState extends State<TodoListPage> {
               border: OutlineInputBorder(),
             ),
             autofocus: true,
-            onSubmitted: (value) {
-              if (value.isNotEmpty) {
-                Navigator.of(context).pop(value);
-              }
-            },
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('Batal'),
             ),
             ElevatedButton(
               onPressed: () {
                 if (editController.text.isNotEmpty) {
-                  Navigator.of(context).pop(editController.text);
+                  Navigator.of(dialogContext).pop(editController.text);
                 }
               },
               child: const Text('Simpan'),
@@ -147,21 +106,48 @@ class _TodoListPageState extends State<TodoListPage> {
       },
     );
 
-    // Cleanup controller
-    editController.dispose();
+    _safeDispose(editController);
 
-    // Update task jika ada perubahan
-    if (newTitle != null && newTitle.isNotEmpty) {
+    if (newTitle != null && newTitle.isNotEmpty && mounted) {
       setState(() {
         _tasks[index].title = newTitle;
       });
     }
   }
 
-  @override
-  void dispose() {
-    _textController.dispose();
-    super.dispose();
+  Future<void> _deleteTask(int index) async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('Konfirmasi'),
+          content: Text('Hapus task "${_tasks[index].title}"?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Batal'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Hapus'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true && mounted) {
+      setState(() {
+        _tasks.removeAt(index);
+      });
+    }
+  }
+
+  void _toggleTask(int index) {
+    setState(() {
+      _tasks[index].isCompleted = !_tasks[index].isCompleted;
+    });
   }
 
   @override
@@ -181,6 +167,8 @@ class _TodoListPageState extends State<TodoListPage> {
               itemBuilder: (context, index) {
                 final task = _tasks[index];
                 return ListTile(
+                  // ObjectKey uses the actual Task object to identify the row
+                  key: ObjectKey(task), 
                   leading: Checkbox(
                     value: task.isCompleted,
                     onChanged: (_) => _toggleTask(index),
@@ -210,7 +198,6 @@ class _TodoListPageState extends State<TodoListPage> {
                 );
               },
             ),
-      // BARU: FloatingActionButton
       floatingActionButton: FloatingActionButton(
         onPressed: _addTask,
         tooltip: 'Tambah Task',
